@@ -1,0 +1,38 @@
+# 워크플로우 이름
+name: GitOps CI Pipeline
+# 트리거 설정: 브랜치 정의
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-update:
+    runs-on: ubuntu-latest
+
+    # 작업 절차
+    steps:
+    - name: 소스코드 전송
+      uses: actions/checkout@v4
+
+    - name: AWS 자격 증명 설정
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    - name: 컨테이너 배포 및 S3 파일 싱크
+      run: |
+        aws ssm send-command \
+          --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
+          --document-name "AWS-RunShellScript" \
+          --parameters commands='[
+            "docker stop nginx-container || true",
+            "docker rm nginx-container || true",
+            "sudo mkdir -p /usr/share/nginx/html",
+            "sudo aws s3 sync s3://${{ secrets.S3_BUCKET_NAME }} /usr/share/nginx/html/ --delete",
+            "docker run -d --name nginx-container -p 80:80 -v /usr/share/nginx/html:/usr/share/nginx/html:ro nginx:alpine"
+          ]' \
+          --region ${{ secrets.AWS_REGION }} \
+          --comment "Deploying SSM docker"
