@@ -24,7 +24,7 @@ jobs:
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
       with:
-        context: .
+        context: ./nginx
         push: true
         tags: "${{ secrets.DOCKER_USER }}/nginx:1.31.3-cd"
 
