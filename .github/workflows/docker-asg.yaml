@@ -97,22 +97,25 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ secrets.AWS_REGION }}
 
-    - name: S3 정적웹사이트로 배포
+    - name: S3 정적웹사이트 및 설정 파일 배포
       run: |
         aws s3 cp ./docker-compose.yaml s3://std14-website-s3/docker-compose.yaml
-        aws s3 sync ./nginx/ s3://std14-website-s3/html/ --delete
+        aws s3 cp ./nginx/default.conf s3://std14-website-s3/nginx/default.conf
+        aws s3 sync ./nginx/html/ s3://std14-website-s3/html/ --delete
 
     - name: Login to Amazon ECR
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v2
 
-    - name: Build and push Docker image to ECR
+    - name: Build and push Docker images to ECR
       run: |
-        docker build --no-cache -t 925047940866.dkr.ecr.eu-west-3.amazonaws.com/nginx:1.31.3-ecr ./nginx
+        # Nginx 이미지 빌드 & 푸시
         docker build --no-cache -t 925047940866.dkr.ecr.eu-west-3.amazonaws.com/nginx:latest ./nginx
-
-        docker push 925047940866.dkr.ecr.eu-west-3.amazonaws.com/nginx:1.31.3-ecr
         docker push 925047940866.dkr.ecr.eu-west-3.amazonaws.com/nginx:latest
+
+        # FastAPI 이미지 빌드 & 푸시
+        docker build --no-cache -t 925047940866.dkr.ecr.eu-west-3.amazonaws.com/fastapi-backend:latest ./backend
+        docker push 925047940866.dkr.ecr.eu-west-3.amazonaws.com/fastapi-backend:latest
 
     - name: 컨테이너 배포 및 S3 파일 싱크 (SSM Run Command)
       run: |
@@ -121,15 +124,14 @@ jobs:
           --targets "Key=tag:Cicd,Values=asg" \
           --parameters "commands=[
             \"sudo aws ecr get-login-password --region eu-west-3 | sudo docker login --username AWS --password-stdin 925047940866.dkr.ecr.eu-west-3.amazonaws.com\",
-            \"sudo docker stop nginx-container || true\",
-            \"sudo docker rm nginx-container || true\",
             \"sudo mkdir -p /home/ec2-user/nginx/html\",
             \"sudo chown -R ec2-user:nginx /home/ec2-user/nginx\",
             \"sudo aws s3 sync s3://std14-website-s3/html/ /home/ec2-user/nginx/html/ --delete\",
+            \"sudo aws s3 cp s3://std14-website-s3/nginx/default.conf /home/ec2-user/nginx/default.conf\",
             \"sudo aws s3 cp s3://std14-website-s3/docker-compose.yaml /home/ec2-user/docker-compose.yaml\",
             \"cd /home/ec2-user && sudo docker compose pull\",
             \"cd /home/ec2-user && sudo docker compose up -d --remove-orphans\",
             \"sudo docker image prune -f\"
           ]" \
           --region ${{ secrets.AWS_REGION }} \
-          --comment "Deploying SSM docker"
+          --comment "Deploying SSM Nginx and FastAPI containers"
