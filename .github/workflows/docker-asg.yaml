@@ -26,45 +26,46 @@ jobs:
       with:
         context: .
         push: true
-        tages: "std14/nginx:1.31.3-cd"
+        tags: "${{ secrets.DOCKER_USER }}/nginx:1.31.3-cd"
 
-
+    # TODO: OIDC 방식(role-to-assume)으로 전환 검토 - 장기 액세스 키 대신 임시 자격증명 사용 가능
     - name: AWS 자격 증명 설정
       uses: aws-actions/configure-aws-credentials@v4
       with:
         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ secrets.AWS_REGION }}
-    
+
+    - name: docker-compose 파일 S3 업로드
+      run: |
+        aws s3 cp ./docker-compose.yaml s3://std14-website-s3/docker-compose.yaml
+
     - name: Login to Amazon ECR
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v2
-    
+
     - name: Build and push Docker image to ECR
-      # env: 
-      #   ECR_REGISTRY: ${{}}
-      #   ECR_REPOSITORY: ${{}}
-      #   IMAGE_TAG: ${{ github.sha }} 
       run: |
         docker build --no-cache -t 925047940866.dkr.ecr.eu-west-3.amazonaws.com/nginx:1.31.3-ecr ./nginx
-        docker build --no-cache -t 925047940866.dkr.ecr.eu-west-3.amazonaws.com/nginx:latest  ./nignx
+        docker build --no-cache -t 925047940866.dkr.ecr.eu-west-3.amazonaws.com/nginx:latest ./nginx
 
         docker push 925047940866.dkr.ecr.eu-west-3.amazonaws.com/nginx:1.31.3-ecr
         docker push 925047940866.dkr.ecr.eu-west-3.amazonaws.com/nginx:latest
-    
 
     - name: 컨테이너 배포 및 S3 파일 싱크
       run: |
         aws ssm send-command \
-          --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
           --document-name "AWS-RunShellScript" \
+          --targets "Key=tag:Cicd,Values=asg" \
           --parameters commands='[
-            \"sudo docker pull std14/nginx:1.31.3-cd"
-            \"sudo docker stop nginx-container || true",
-            \"sudo docker rm nginx-container || true",
-            # "sudo mkdir -p /usr/share/nginx/html",
-            # "sudo aws s3 sync s3://${{ secrets.S3_BUCKET_NAME }} /usr/share/nginx/html/ --delete",
-            \"docker run -d --name nginx-container -p 80:80 -v /usr/share/nginx/html:/usr/share/nginx/html:ro nginx:alpine"
+            "sudo aws ecr get-login-password --region eu-west-3 | sudo docker login --username AWS --password-stdin 925047940866.dkr.ecr.eu-west-3.amazonaws.com",
+            "sudo mkdir -p /home/ec2-user/app",
+            "sudo aws s3 cp s3://std14-website-s3/docker-compose.yaml /home/ec2-user/app/docker-compose.yaml",
+            "sudo docker compose -f /home/ec2-user/app/docker-compose.yaml pull",
+            "sudo docker stop nginx-container || true",
+            "sudo docker rm nginx-container || true",
+            "sudo docker compose -f /home/ec2-user/app/docker-compose.yaml up -d --remove-orphans",
+            "sudo docker image prune -f"
           ]' \
-          --region ${{ secrets.AWS_REGION }} \
+          --region "eu-west-3" \
           --comment "Deploying SSM docker"
