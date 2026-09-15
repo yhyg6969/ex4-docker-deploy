@@ -100,7 +100,7 @@ jobs:
     - name: S3 정적웹사이트로 배포
       run: |
         aws s3 cp ./docker-compose.yaml s3://std14-website-s3/docker-compose.yaml
-        aws s3 sync ./nginx/index.html s3://std14-website-s3/html/index.html --delete
+        aws s3 sync ./nginx/ s3://std14-website-s3/html/ --delete
 
     - name: Login to Amazon ECR
       id: login-ecr
